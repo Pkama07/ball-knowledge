@@ -1,0 +1,17 @@
+# dependencies
+node_modules/
+
+# builds / generated output
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+.env*.local
+.vercel

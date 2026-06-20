@@ -1,0 +1,16 @@
+{
+  "name": "ball-knowledge",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev:client": "npm run dev --workspace @ball-knowledge/client",
+    "dev:server": "npm run dev --workspace @ball-knowledge/server",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}
