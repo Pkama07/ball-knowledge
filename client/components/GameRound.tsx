@@ -153,8 +153,7 @@ export function GameRound({
       <div>
         {header}
         <div className="mb-6 text-center">
-          <div className="text-5xl">🎧</div>
-          <div className="mt-2 text-xl font-semibold">Name that song!</div>
+          <div className="text-xl font-semibold">Name that song!</div>
           <div className="mt-1 text-sm text-neutral-400">
             {(remaining / 1000).toFixed(0)}s left
           </div>

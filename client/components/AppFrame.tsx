@@ -14,7 +14,7 @@ export function AppFrame({
 }) {
   return (
     <div className="mx-auto max-w-2xl px-5 pb-20 pt-10">
-      <h1 className="mb-8 text-center text-2xl font-black">🎵 Ball Knowledge</h1>
+      <h1 className="mb-8 text-center text-2xl font-black">Ball Knowledge</h1>
 
       {error && (
         <div className="mb-5 flex items-center justify-between rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-red-300">
