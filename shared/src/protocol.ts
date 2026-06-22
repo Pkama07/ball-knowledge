@@ -9,7 +9,7 @@
 // that are PRIVATE to one client (their own guess outcome, their identity) or
 // that don't belong in shared state (clock sync, errors) get their own message.
 
-import type { RoomState } from "./domain.js";
+import type { RoomConfig, RoomState } from "./domain.js";
 
 /** Messages the client sends to the server. */
 export type ClientMessage =
@@ -19,10 +19,16 @@ export type ClientMessage =
   | { type: "leave" }
   // --- host-only controls ---
   | { type: "selectArtist"; artistId: number; artistName: string }
+  // Update one or more room settings (lobby only). Server validates/clamps.
+  | { type: "updateConfig"; config: Partial<RoomConfig> }
   | { type: "startGame" } // lobby -> first round's countdown
   | { type: "nextRound" } // reveal -> next round's countdown (or -> finished)
+  | { type: "resetGame" } // finished -> lobby (rematch; scores cleared)
   // --- gameplay ---
   | { type: "guess"; roundIndex: number; text: string }
+  // Player concedes the current round. When ALL connected players have, the
+  // round ends early (no winner).
+  | { type: "giveUp"; roundIndex: number }
   // --- clock sync (for synced playback) ---
   | { type: "timeSync"; clientSentAt: number };
 

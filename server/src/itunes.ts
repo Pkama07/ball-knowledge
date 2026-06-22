@@ -10,6 +10,7 @@ interface RawTrack {
   wrapperType?: string;
   kind?: string;
   trackId?: number;
+  artistId?: number;
   trackName?: string;
   artistName?: string;
   collectionName?: string;
@@ -49,6 +50,7 @@ export async function fetchArtistSongs(
     )
     .map((r) => ({
       trackId: r.trackId!,
+      artistId: r.artistId,
       title: r.trackName!,
       artist: r.artistName ?? "",
       album: r.collectionName ?? "",

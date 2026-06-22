@@ -14,6 +14,9 @@ import { verifyToken } from "./auth.js";
 
 const PORT = Number(process.env.PORT ?? 4000);
 const AUTH_DISABLED = process.env.AUTH_DISABLED === "1";
+// Origin allowed to call the existence-check endpoint cross-origin. `*` is fine
+// for this unauthenticated, read-only check; set CLIENT_ORIGIN to lock it down.
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? "*";
 
 const httpServer = createServer((req, res) => {
   if (req.url === "/health") {
@@ -21,6 +24,20 @@ const httpServer = createServer((req, res) => {
     res.end(JSON.stringify({ status: "ok" }));
     return;
   }
+
+  // GET /rooms/:code — does a joinable room exist? Lets the client decide
+  // whether a `/<CODE>` visit proceeds to a name prompt or bounces home.
+  const roomMatch = req.url && /^\/rooms\/([^/?#]+)/.exec(req.url);
+  if (roomMatch && req.method === "GET") {
+    const code = decodeURIComponent(roomMatch[1]);
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "access-control-allow-origin": CLIENT_ORIGIN,
+    });
+    res.end(JSON.stringify({ exists: hub.hasRoom(code) }));
+    return;
+  }
+
   res.writeHead(404, { "content-type": "text/plain" });
   res.end("Not found");
 });
@@ -33,29 +50,51 @@ const wss = new WebSocketServer({
 });
 const hub = new GameHub();
 
-wss.on("connection", async (conn: WebSocket, req: IncomingMessage) => {
-  let userId: string;
-  if (AUTH_DISABLED) {
-    // Local/smoke mode: skip verification, assign a throwaway identity.
-    userId = randomUUID();
-  } else {
-    const token = extractToken(req);
-    if (!token) {
-      conn.close(1008, "unauthorized");
-      return;
-    }
-    try {
-      ({ userId } = await verifyToken(token));
-    } catch {
-      conn.close(1008, "unauthorized");
-      return;
-    }
-  }
+wss.on("connection", (conn: WebSocket, req: IncomingMessage) => {
+  // Verifying the token is async (it may fetch the JWKS), but the client sends
+  // its first message — e.g. `create` — the instant the socket opens. If we only
+  // attached the `message` listener after the await, that first message would be
+  // emitted with no listener and silently dropped, so the action appeared to need
+  // a second click. Instead we attach the listener synchronously and buffer
+  // anything that arrives before auth finishes, then flush it in order.
+  let ready = false;
+  const pending: string[] = [];
 
-  hub.attach(conn, userId);
-  conn.on("message", (data) => hub.onMessage(conn, data.toString()));
+  conn.on("message", (data) => {
+    const text = data.toString();
+    if (ready) hub.onMessage(conn, text);
+    else pending.push(text);
+  });
   conn.on("close", () => hub.onClose(conn));
   conn.on("error", () => hub.onClose(conn));
+
+  void (async () => {
+    let userId: string;
+    if (AUTH_DISABLED) {
+      // Local/smoke mode: skip verification, assign a throwaway identity.
+      userId = randomUUID();
+    } else {
+      const token = extractToken(req);
+      if (!token) {
+        conn.close(1008, "unauthorized");
+        return;
+      }
+      try {
+        ({ userId } = await verifyToken(token));
+      } catch {
+        conn.close(1008, "unauthorized");
+        return;
+      }
+    }
+
+    // The socket may have closed while we were verifying.
+    if (conn.readyState !== conn.OPEN) return;
+
+    hub.attach(conn, userId);
+    ready = true;
+    for (const text of pending) hub.onMessage(conn, text);
+    pending.length = 0;
+  })();
 });
 
 /**

@@ -1,0 +1,34 @@
+# Ignore file for server/Dockerfile. BuildKit pairs `<dockerfile>.dockerignore`
+# with the Dockerfile of the same name; patterns below are relative to the build
+# context, which is the REPO ROOT (docker-compose.yml sets `context: ..`).
+#
+# Keep the build context small and reproducible. Manifests are copied
+# explicitly by the Dockerfile; dependencies are installed inside the image.
+**/node_modules
+**/dist
+**/.next
+**/*.tsbuildinfo
+.git
+.gitignore
+**/.env
+**/.env.*
+.DS_Store
+npm-debug.log*
+
+# The client is deployed separately (Vercel); its source isn't needed in the
+# server image. Its package.json is still copied by the Dockerfile for the
+# workspace install, so don't ignore that file here.
+client/app
+client/components
+client/lib
+client/public
+client/next.config.mjs
+client/postcss.config.mjs
+client/tsconfig.json
+
+# Docs / deploy config — not needed inside the image.
+**/*.md
+server/Caddyfile
+server/docker-compose.yml
+server/Dockerfile
+server/Dockerfile.dockerignore

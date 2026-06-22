@@ -97,7 +97,7 @@ async function main() {
   const joined = await host.waitFor((m) => m.type === "joined", "host joined");
   const code = joined.roomCode;
   const hostId = joined.playerId;
-  assert(/^[A-Z0-9]{4}$/.test(code), "room code is 4 chars");
+  assert(/^[A-Z]{6}$/.test(code), "room code is 6 uppercase letters");
   const lobby0 = await host.waitFor(isState("lobby"), "host lobby");
   assert(lobby0.state.players.length === 1, "1 player after create");
   assert(lobby0.state.players[0].isHost, "creator is host");

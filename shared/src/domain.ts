@@ -12,6 +12,9 @@
 export interface Song {
   /** iTunes trackId, used as a stable identifier. */
   trackId: number;
+  /** iTunes artistId of the track's PRIMARY artist. Used to tell whether the
+   *  selected artist actually headlines the song (vs. being a featured guest). */
+  artistId?: number;
   title: string;
   artist: string;
   album: string;
@@ -70,9 +73,18 @@ export interface RoomState {
   players: Player[];
   /** 1-based number of the round in progress; 0 while in the lobby. */
   roundNumber: number;
+  /** Actual number of rounds the game will run — i.e. the playlist length once
+   *  an artist is loaded (`min(config.totalRounds, songs available)`); 0 before. */
   totalRounds: number;
+  /** The host-tunable settings, surfaced so everyone (and the settings UI) can
+   *  see them. `config.totalRounds` is the *requested* max, which may exceed the
+   *  derived `totalRounds` above when the artist has fewer playable songs. */
+  config: RoomConfig;
   /** Present during countdown/playing; null otherwise. */
   currentRound: RoundPublic | null;
+  /** During `playing`, how many connected players have hit "I don't know". When
+   *  every connected player has, the round ends early. 0 outside a live round. */
+  gaveUpCount: number;
   /** Populated during the `reveal` phase; the most recent round's outcome. */
   lastResult: RoundResult | null;
 }
@@ -80,14 +92,25 @@ export interface RoomState {
 /** Per-room tuning knobs. */
 export interface RoomConfig {
   totalRounds: number;
-  /** Guessing window per round, in ms. */
+  /** Guessing window per round, in ms. Clamped to [MIN, MAX]_ROUND_DURATION_MS. */
   roundDurationMs: number;
   /** Countdown shown before each clip starts, in ms. */
   countdownMs: number;
+  /** When false, only songs the selected artist HEADLINES are used. When true,
+   *  songs where they're merely a featured/secondary artist are included too. */
+  includeNonPrimaryArtist: boolean;
 }
 
 export const GAME_DEFAULTS: RoomConfig = {
   totalRounds: 10,
   roundDurationMs: 30_000,
   countdownMs: 3_000,
+  includeNonPrimaryArtist: false,
 };
+
+// Bounds the host may set the per-round guessing window to, in ms.
+export const MIN_ROUND_DURATION_MS = 5_000;
+export const MAX_ROUND_DURATION_MS = 30_000;
+// Bounds for the number of rounds.
+export const MIN_TOTAL_ROUNDS = 1;
+export const MAX_TOTAL_ROUNDS = 20;

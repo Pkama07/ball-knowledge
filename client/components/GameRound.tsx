@@ -12,7 +12,9 @@ export function GameRound({
   clockOffset,
   guessFeedback,
   onGuess,
+  onGiveUp,
   onNext,
+  onReset,
 }: {
   state: RoomState;
   meId: string | null;
@@ -20,7 +22,9 @@ export function GameRound({
   clockOffset: number;
   guessFeedback: GuessFeedback | null;
   onGuess: (roundIndex: number, text: string) => void;
+  onGiveUp: (roundIndex: number) => void;
   onNext: () => void;
+  onReset: () => void;
 }) {
   const { phase, currentRound, lastResult } = state;
 
@@ -74,11 +78,27 @@ export function GameRound({
   const [text, setText] = useState("");
   const alreadyWon = guessFeedback?.awarded === true;
 
+  // Whether *this* player has hit "I don't know" for the current round. Reset
+  // whenever the round changes so the button is live again next round.
+  const [gaveUp, setGaveUp] = useState(false);
+  const roundIndex = currentRound?.index;
+  useEffect(() => {
+    setGaveUp(false);
+  }, [roundIndex]);
+
+  const locked = alreadyWon || gaveUp;
+
   function submitGuess(e: React.FormEvent) {
     e.preventDefault();
-    if (!text.trim() || !currentRound) return;
+    if (!text.trim() || !currentRound || locked) return;
     onGuess(currentRound.index, text.trim());
     setText("");
+  }
+
+  function handleGiveUp() {
+    if (!currentRound || locked) return;
+    setGaveUp(true);
+    onGiveUp(currentRound.index);
   }
 
   const header = (
@@ -90,17 +110,28 @@ export function GameRound({
     </div>
   );
 
+  // Seconds left in the countdown, clamped to the configured countdown length so
+  // a not-yet-synced clock offset can't briefly flash a wildly wrong number.
+  const countdownSecs =
+    phase === "countdown" && currentRound
+      ? Math.min(
+          Math.ceil(state.config.countdownMs / 1000),
+          Math.max(
+            0,
+            Math.ceil((currentRound.startsAt - clockOffset - now) / 1000)
+          )
+        )
+      : 0;
+
   // ---------------- COUNTDOWN ----------------
-  if (phase === "countdown" && currentRound) {
-    const startLocal = currentRound.startsAt - clockOffset;
-    const secs = Math.max(0, Math.ceil((startLocal - now) / 1000));
+  if (phase === "countdown" && currentRound && countdownSecs > 0) {
     return (
       <div>
         {header}
         <div className="flex flex-col items-center justify-center py-20">
           <div className="text-neutral-400">Get ready…</div>
           <div className="mt-2 text-8xl font-black tabular-nums">
-            {secs || "🎵"}
+            {countdownSecs}
           </div>
           {needsUnlock && (
             <UnlockButton audioRef={audioRef} onUnlocked={() => setNeedsUnlock(false)} />
@@ -111,7 +142,9 @@ export function GameRound({
   }
 
   // ---------------- PLAYING ----------------
-  if (phase === "playing" && currentRound) {
+  // Also covers the brief tail of the countdown once it reaches 0 locally (audio
+  // is starting), so we jump straight to the guess UI with no placeholder flash.
+  if ((phase === "playing" || phase === "countdown") && currentRound) {
     const endLocal = currentRound.startsAt + currentRound.durationMs - clockOffset;
     const remaining = Math.max(0, endLocal - now);
     const pct = Math.min(100, (remaining / currentRound.durationMs) * 100);
@@ -140,24 +173,46 @@ export function GameRound({
           </div>
         )}
 
-        <form onSubmit={submitGuess} className="mb-4 flex gap-2">
+        <form onSubmit={submitGuess} className="mb-3 flex gap-2">
           <input
             type="text"
             autoFocus
-            disabled={alreadyWon}
-            placeholder={alreadyWon ? "You got it! 🎉" : "Type your guess…"}
+            disabled={locked}
+            placeholder={
+              alreadyWon
+                ? "You got it! 🎉"
+                : gaveUp
+                  ? "You gave up — waiting on others…"
+                  : "Type your guess…"
+            }
             value={text}
             onChange={(e) => setText(e.target.value)}
             className="flex-1 rounded-xl border border-edge bg-panel px-4 py-3 text-base text-neutral-100 outline-none focus:border-accent disabled:opacity-60"
           />
           <button
             type="submit"
-            disabled={alreadyWon}
-            className="rounded-xl bg-accent px-5 py-3 font-semibold text-white disabled:opacity-40"
+            disabled={locked}
+            className="cursor-pointer rounded-xl bg-accent px-5 py-3 font-semibold text-white disabled:cursor-default disabled:opacity-40"
           >
             Guess
           </button>
         </form>
+
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={handleGiveUp}
+            disabled={locked}
+            className="cursor-pointer rounded-xl border border-edge px-4 py-2 text-sm font-semibold text-neutral-300 hover:bg-neutral-800 disabled:cursor-default disabled:opacity-40"
+          >
+            🤷 I don&apos;t know
+          </button>
+          {state.gaveUpCount > 0 && (
+            <span className="text-sm text-neutral-400">
+              {state.gaveUpCount} / {state.players.length} gave up
+            </span>
+          )}
+        </div>
 
         <GuessFeedbackLine feedback={guessFeedback} />
 
@@ -227,7 +282,7 @@ export function GameRound({
           {isHost ? (
             <button
               onClick={onNext}
-              className="w-full rounded-xl bg-accent px-5 py-4 text-lg font-bold text-white"
+              className="w-full cursor-pointer rounded-xl bg-accent px-5 py-4 text-lg font-bold text-white"
             >
               {isLastRound ? "See final results" : "Next round →"}
             </button>
@@ -267,12 +322,20 @@ export function GameRound({
           />
         </div>
 
-        <button
-          onClick={() => window.location.reload()}
-          className="mt-7 w-full rounded-xl bg-neutral-800 px-5 py-4 font-bold text-neutral-100 hover:bg-neutral-700"
-        >
-          New game
-        </button>
+        <div className="mt-7">
+          {isHost ? (
+            <button
+              onClick={onReset}
+              className="w-full cursor-pointer rounded-xl bg-accent px-5 py-4 text-lg font-bold text-white"
+            >
+              Reset game
+            </button>
+          ) : (
+            <div className="rounded-xl border border-edge bg-panel px-5 py-4 text-center text-neutral-400">
+              Waiting for the host…
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -303,7 +366,7 @@ function UnlockButton({
   return (
     <button
       onClick={() => audioRef.current?.play().then(onUnlocked, () => {})}
-      className="mt-4 rounded-lg bg-neutral-800 px-4 py-2 font-semibold text-neutral-100 hover:bg-neutral-700"
+      className="mt-4 cursor-pointer rounded-lg bg-neutral-800 px-4 py-2 font-semibold text-neutral-100 hover:bg-neutral-700"
     >
       🔊 Tap to enable sound
     </button>

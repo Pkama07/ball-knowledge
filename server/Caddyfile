@@ -1,0 +1,17 @@
+# Caddy reverse proxy for the game server.
+#
+# Caddy automatically provisions and renews a Let's Encrypt certificate for
+# $DOMAIN and upgrades WebSocket connections transparently, so the browser can
+# connect with wss://$DOMAIN. Requires ports 80 and 443 reachable and a DNS
+# A/AAAA record for $DOMAIN pointing at this host.
+
+{
+	# Email for ACME/Let's Encrypt expiry notices (optional but recommended).
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	# Proxies both plain HTTP (/health) and the WebSocket endpoint. The
+	# Upgrade/Connection handshake is forwarded automatically.
+	reverse_proxy server:4000
+}

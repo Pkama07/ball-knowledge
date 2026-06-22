@@ -15,7 +15,8 @@ interface Membership {
   playerId: string;
 }
 
-const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous chars
+const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // letters only, no ambiguous I/O
+const ROOM_CODE_LENGTH = 6;
 
 // How long a room with players but no live connections lingers before it's
 // reaped. Gives disconnected players a window to reconnect mid-game.
@@ -37,11 +38,18 @@ export class GameHub {
     this.authByConn.set(conn, userId);
   }
 
+  /** Whether a joinable room exists for a code. Backs the HTTP existence check
+   *  the client makes before letting a user into a `/<CODE>` URL. */
+  hasRoom(code: string): boolean {
+    return this.rooms.has(code.trim().toUpperCase());
+  }
+
   /** Config applied to new rooms; env overrides make tests fast. */
   private readonly config: RoomConfig = {
     totalRounds: envInt("TOTAL_ROUNDS", GAME_DEFAULTS.totalRounds),
     roundDurationMs: envInt("ROUND_MS", GAME_DEFAULTS.roundDurationMs),
     countdownMs: envInt("COUNTDOWN_MS", GAME_DEFAULTS.countdownMs),
+    includeNonPrimaryArtist: GAME_DEFAULTS.includeNonPrimaryArtist,
   };
 
   onMessage(conn: WebSocket, raw: string): void {
@@ -72,13 +80,23 @@ export class GameHub {
         return this.withRoom(conn, (room, pid) => {
           void room.selectArtist(pid, msg.artistId, msg.artistName);
         });
+      case "updateConfig":
+        return this.withRoom(conn, (room, pid) =>
+          room.updateConfig(pid, msg.config)
+        );
       case "startGame":
         return this.withRoom(conn, (room, pid) => room.startGame(pid));
       case "nextRound":
         return this.withRoom(conn, (room, pid) => room.nextRound(pid));
+      case "resetGame":
+        return this.withRoom(conn, (room, pid) => room.resetGame(pid));
       case "guess":
         return this.withRoom(conn, (room, pid) =>
           room.guess(pid, msg.roundIndex, msg.text)
+        );
+      case "giveUp":
+        return this.withRoom(conn, (room, pid) =>
+          room.giveUp(pid, msg.roundIndex)
         );
       default: {
         const _exhaustive: never = msg;
@@ -131,11 +149,12 @@ export class GameHub {
     if (!room) {
       return send(conn, { type: "error", message: "Room not found." });
     }
-    // A returning player can rejoin mid-game; only new players are gated to the
-    // lobby phase.
-    const reconnecting = room.hasPlayer(userId);
-    if (!reconnecting && !room.canJoin()) {
-      return send(conn, { type: "error", message: "Game already started." });
+    // Anyone can join mid-game: returning players resume their score, and new
+    // players are added (sitting out any in-progress round, then participating
+    // from the next one — see Room.addPlayer). A finished game has nothing to
+    // join, so it's the only closed phase.
+    if (!room.hasPlayer(userId) && room.isFinished()) {
+      return send(conn, { type: "error", message: "Game is already over." });
     }
 
     const playerId = room.addPlayer(conn, sanitizeName(playerName), userId);
@@ -216,7 +235,7 @@ export class GameHub {
     let code = "";
     do {
       code = Array.from(
-        { length: 4 },
+        { length: ROOM_CODE_LENGTH },
         () =>
           ROOM_CODE_ALPHABET[
             Math.floor(Math.random() * ROOM_CODE_ALPHABET.length)

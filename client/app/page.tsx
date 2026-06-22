@@ -1,133 +1,77 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useGameClient } from "@/lib/useGameClient";
-import { ChooseArtist } from "@/components/ChooseArtist";
-import { Lobby } from "@/components/Lobby";
-import { GameRound } from "@/components/GameRound";
+import { AppFrame } from "@/components/AppFrame";
+import { GameScreens } from "@/components/GameScreens";
+import { MiniSpinner } from "@/components/ui";
+import { getStoredName, storeName } from "@/lib/playerName";
+
+const NOT_FOUND_MESSAGE =
+  "We couldn't find that game. Check the code and try again.";
 
 export default function Home() {
   const game = useGameClient();
-  const { roomState, playerId } = game;
-  const [pickingArtist, setPickingArtist] = useState(false);
 
-  const me = roomState?.players.find((p) => p.id === playerId) ?? null;
-  const isHost = me?.isHost ?? false;
+  // A `/<CODE>` visit for a missing room redirects here with `?error=notfound`.
+  // Read it once on mount, surface it, then scrub it from the URL so a refresh
+  // doesn't keep showing it.
+  const [redirectError, setRedirectError] = useState<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("error") === "notfound") {
+      setRedirectError(NOT_FOUND_MESSAGE);
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
+
+  const error = game.error ?? redirectError;
+  const dismiss = () => {
+    setRedirectError(null);
+    game.dismissError();
+  };
 
   return (
-    <div className="mx-auto max-w-2xl px-5 pb-20 pt-10">
-      <h1 className="mb-8 text-center text-2xl font-black">
-        🎵 Ball Knowledge
-      </h1>
-
-      {game.error && (
-        <div className="mb-5 flex items-center justify-between rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-red-300">
-          <span>{game.error}</span>
-          <button
-            onClick={game.dismissError}
-            className="text-red-300/70 hover:text-red-200"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      <Screen
-        game={game}
-        isHost={isHost}
-        pickingArtist={pickingArtist}
-        setPickingArtist={setPickingArtist}
-      />
-    </div>
+    <AppFrame error={error} onDismissError={dismiss}>
+      {game.roomState ? <GameScreens game={game} /> : <HomeScreen game={game} />}
+    </AppFrame>
   );
 }
 
 type GameClient = ReturnType<typeof useGameClient>;
 
-function Screen({
-  game,
-  isHost,
-  pickingArtist,
-  setPickingArtist,
-}: {
-  game: GameClient;
-  isHost: boolean;
-  pickingArtist: boolean;
-  setPickingArtist: (v: boolean) => void;
-}) {
-  const { roomState, playerId } = game;
-
-  // Not in a room yet → home screen.
-  if (!roomState) {
-    return <HomeScreen game={game} />;
-  }
-
-  switch (roomState.phase) {
-    case "loading":
-      return (
-        <Centered>
-          <Spinner />
-          <p className="mt-4 text-neutral-400">
-            Loading {roomState.artistName}&apos;s songs…
-          </p>
-        </Centered>
-      );
-
-    case "lobby": {
-      // Host with no artist (or actively re-picking) → artist chooser.
-      const needsArtist = isHost && (!roomState.artistName || pickingArtist);
-      if (needsArtist) {
-        return (
-          <ChooseArtist
-            onSelect={(id, name) => {
-              setPickingArtist(false);
-              game.selectArtist(id, name);
-            }}
-            onCancel={
-              roomState.artistName ? () => setPickingArtist(false) : undefined
-            }
-          />
-        );
-      }
-      return (
-        <Lobby
-          state={roomState}
-          meId={playerId}
-          isHost={isHost}
-          onStart={game.startGame}
-          onChangeArtist={() => setPickingArtist(true)}
-        />
-      );
-    }
-
-    case "countdown":
-    case "playing":
-    case "reveal":
-    case "finished":
-      return (
-        <GameRound
-          state={roomState}
-          meId={playerId}
-          isHost={isHost}
-          clockOffset={game.clockOffset}
-          guessFeedback={game.guessFeedback}
-          onGuess={game.guess}
-          onNext={game.nextRound}
-        />
-      );
-
-    default:
-      return null;
-  }
-}
-
 function HomeScreen({ game }: { game: GameClient }) {
   const { isReady, error: authError } = useAuth();
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
+  // Tracks an in-flight "create" so the button can show a loading state. On
+  // success the room appears and this whole screen unmounts; on failure
+  // game.error is set, so reset there.
+  const [creating, setCreating] = useState(false);
+
+  // Prefill the name from the last-used value stored in the cookie.
+  useEffect(() => setName(getStoredName()), []);
+  useEffect(() => {
+    if (game.error) setCreating(false);
+  }, [game.error]);
+
   // Block connecting until we have an anonymous session (and thus a token).
   const busy = game.status === "connecting" || !isReady;
+
+  const createLabel = !isReady
+    ? authError
+      ? "Sign-in failed"
+      : "Signing in…"
+    : creating
+      ? "Creating room…"
+      : "Create a room";
+
+  const resolvedName = () => {
+    const finalName = name.trim() || "Player";
+    storeName(finalName);
+    return finalName;
+  };
 
   return (
     <div>
@@ -152,11 +96,15 @@ function HomeScreen({ game }: { game: GameClient }) {
       />
 
       <button
-        onClick={() => game.create(name.trim() || "Player")}
-        disabled={busy}
-        className="mb-6 w-full rounded-xl bg-accent px-5 py-4 text-lg font-bold text-white disabled:opacity-50"
+        onClick={() => {
+          setCreating(true);
+          game.create(resolvedName());
+        }}
+        disabled={busy || creating}
+        className="mb-6 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-accent px-5 py-4 text-lg font-bold text-white disabled:cursor-default disabled:opacity-50"
       >
-        {isReady ? "Create a room" : authError ? "Sign-in failed" : "Signing in…"}
+        {creating && <MiniSpinner />}
+        {createLabel}
       </button>
 
       <div className="mb-4 flex items-center gap-3 text-sm text-neutral-500">
@@ -170,32 +118,20 @@ function HomeScreen({ game }: { game: GameClient }) {
           type="text"
           placeholder="ROOM CODE"
           value={code}
-          onChange={(e) => setCode(e.target.value.toUpperCase())}
-          maxLength={4}
+          onChange={(e) =>
+            setCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))
+          }
+          maxLength={6}
           className="w-36 rounded-xl border border-edge bg-panel px-4 py-3 text-center font-mono text-base uppercase tracking-[0.2em] text-neutral-100 outline-none focus:border-accent"
         />
         <button
-          onClick={() => game.join(code.trim(), name.trim() || "Player")}
-          disabled={busy || code.trim().length < 4}
-          className="flex-1 rounded-xl bg-neutral-800 px-5 py-3 font-semibold text-neutral-100 hover:bg-neutral-700 disabled:opacity-50"
+          onClick={() => game.join(code.trim(), resolvedName())}
+          disabled={busy || code.trim().length < 6}
+          className="flex-1 cursor-pointer rounded-xl bg-neutral-800 px-5 py-3 font-semibold text-neutral-100 hover:bg-neutral-700 disabled:cursor-default disabled:opacity-50"
         >
           Join room
         </button>
       </div>
     </div>
-  );
-}
-
-function Centered({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-24">
-      {children}
-    </div>
-  );
-}
-
-function Spinner() {
-  return (
-    <div className="h-10 w-10 animate-spin rounded-full border-4 border-edge border-t-accent" />
   );
 }

@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import type {
   ClientMessage,
+  RoomConfig,
   RoomState,
   ServerMessage,
 } from "@ball-knowledge/shared";
@@ -35,9 +36,12 @@ export interface GameClient {
   create: (playerName: string) => void;
   join: (roomCode: string, playerName: string) => void;
   selectArtist: (artistId: number, artistName: string) => void;
+  updateConfig: (config: Partial<RoomConfig>) => void;
   startGame: () => void;
   nextRound: () => void;
+  resetGame: () => void;
   guess: (roundIndex: number, text: string) => void;
+  giveUp: (roundIndex: number) => void;
   dismissError: () => void;
 }
 
@@ -164,6 +168,13 @@ export function useGameClient(): GameClient {
       },
       [send]
     ),
+    updateConfig: useCallback(
+      (config) => {
+        setError(null);
+        send({ type: "updateConfig", config });
+      },
+      [send]
+    ),
     startGame: useCallback(() => {
       setError(null);
       send({ type: "startGame" });
@@ -172,8 +183,16 @@ export function useGameClient(): GameClient {
       setError(null);
       send({ type: "nextRound" });
     }, [send]),
+    resetGame: useCallback(() => {
+      setError(null);
+      send({ type: "resetGame" });
+    }, [send]),
     guess: useCallback(
       (roundIndex, text) => send({ type: "guess", roundIndex, text }),
+      [send]
+    ),
+    giveUp: useCallback(
+      (roundIndex) => send({ type: "giveUp", roundIndex }),
       [send]
     ),
     dismissError: useCallback(() => setError(null), []),

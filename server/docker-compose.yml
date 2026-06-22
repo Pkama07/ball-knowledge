@@ -1,0 +1,55 @@
+# Production stack for the Hetzner box.
+#
+#   server  — the game server (in-memory rooms, WebSockets). NOT published
+#             directly; only Caddy can reach it.
+#   caddy   — public entrypoint. Terminates TLS (auto Let's Encrypt) and proxies
+#             HTTP + WebSocket traffic to the server. The browser connects with
+#             wss://${DOMAIN}.
+#
+# Configure via a .env file next to this one (see .env.example), then, from the
+# server/ directory:
+#   docker compose up -d --build
+#
+# The build context is the REPO ROOT (`..`), not this directory: the server
+# imports the `@ball-knowledge/shared` workspace, which lives outside server/,
+# so the image build needs the whole monorepo (root manifests + shared/).
+#
+# NOTE: the server keeps all game state in memory and assumes a SINGLE instance.
+# Do not scale `server` to >1 replica — rooms would be split across processes
+# that can't see each other.
+
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: ball-knowledge-server
+    restart: unless-stopped
+    environment:
+      PORT: "4000"
+      SUPABASE_URL: ${SUPABASE_URL:?set SUPABASE_URL in .env}
+      SUPABASE_JWT_AUD: ${SUPABASE_JWT_AUD:-authenticated}
+      # Optional tuning (see server/src/hub.ts & room.ts):
+      # TOTAL_ROUNDS, ROUND_MS, COUNTDOWN_MS, ABANDON_MS
+    expose:
+      - "4000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - server
+
+volumes:
+  caddy_data:
+  caddy_config:

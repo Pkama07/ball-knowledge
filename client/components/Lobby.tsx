@@ -1,20 +1,32 @@
 "use client";
 
-import type { RoomState } from "@ball-knowledge/shared";
-import { Scoreboard } from "./Scoreboard";
+import { useState } from "react";
+import {
+  MAX_ROUND_DURATION_MS,
+  MAX_TOTAL_ROUNDS,
+  MIN_ROUND_DURATION_MS,
+  MIN_TOTAL_ROUNDS,
+  type Player,
+  type RoomConfig,
+  type RoomState,
+} from "@ball-knowledge/shared";
+import { ArtistSearch } from "./ArtistSearch";
+import { SettingSlider, Toggle } from "./ui";
 
 export function Lobby({
   state,
   meId,
   isHost,
   onStart,
-  onChangeArtist,
+  onSelectArtist,
+  onUpdateConfig,
 }: {
   state: RoomState;
   meId: string | null;
   isHost: boolean;
   onStart: () => void;
-  onChangeArtist: () => void;
+  onSelectArtist: (artistId: number, artistName: string) => void;
+  onUpdateConfig: (config: Partial<RoomConfig>) => void;
 }) {
   const hasArtist = Boolean(state.artistName);
 
@@ -36,43 +48,29 @@ export function Lobby({
         </div>
       </div>
 
-      <div className="mb-6 rounded-xl border border-edge bg-panel px-4 py-3">
-        <div className="text-sm text-neutral-400">Artist</div>
-        <div className="flex items-center justify-between">
-          <span className="text-lg font-semibold">
-            {hasArtist ? (
-              <>
-                {state.artistName}{" "}
-                <span className="text-neutral-400">
-                  · {state.totalRounds} rounds
-                </span>
-              </>
-            ) : (
-              <span className="text-neutral-500">Not chosen yet</span>
-            )}
-          </span>
-          {isHost && hasArtist && (
-            <button
-              onClick={onChangeArtist}
-              className="text-sm text-neutral-400 hover:text-neutral-200"
-            >
-              Change
-            </button>
-          )}
-        </div>
-      </div>
+      <ArtistSection
+        state={state}
+        isHost={isHost}
+        onSelectArtist={onSelectArtist}
+      />
+
+      <Settings
+        config={state.config}
+        isHost={isHost}
+        onUpdateConfig={onUpdateConfig}
+      />
 
       <div className="mb-2 text-sm uppercase tracking-wide text-neutral-400">
         Players ({state.players.length})
       </div>
-      <Scoreboard players={state.players} meId={meId} />
+      <PlayerChips players={state.players} meId={meId} />
 
       <div className="mt-7">
         {isHost ? (
           <button
             onClick={onStart}
             disabled={!hasArtist}
-            className="w-full rounded-xl bg-accent px-5 py-4 text-lg font-bold text-white disabled:opacity-40"
+            className="w-full cursor-pointer rounded-xl bg-accent px-5 py-4 text-lg font-bold text-white disabled:cursor-default disabled:opacity-40"
           >
             {hasArtist ? "Start game" : "Choose an artist first"}
           </button>
@@ -81,6 +79,166 @@ export function Lobby({
             Waiting for the host to start…
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** The artist box. For the host it doubles as the artist picker: an inline
+ *  search when no artist is set (or when re-picking), collapsing to the chosen
+ *  artist with a "Change" button at the foot. Non-hosts just see the choice. */
+function ArtistSection({
+  state,
+  isHost,
+  onSelectArtist,
+}: {
+  state: RoomState;
+  isHost: boolean;
+  onSelectArtist: (artistId: number, artistName: string) => void;
+}) {
+  const hasArtist = Boolean(state.artistName);
+  const loading = state.phase === "loading";
+  const [editing, setEditing] = useState(false);
+  const showSearch = isHost && !loading && (editing || !hasArtist);
+
+  return (
+    <div className="mb-6 rounded-xl border border-edge bg-panel px-4 py-3">
+      <div className="text-sm text-neutral-400">Artist</div>
+
+      {showSearch ? (
+        <div className="mt-2">
+          <ArtistSearch
+            onSelect={(id, name) => {
+              setEditing(false);
+              onSelectArtist(id, name);
+            }}
+          />
+          {hasArtist && (
+            <button
+              onClick={() => setEditing(false)}
+              className="mt-3 cursor-pointer text-sm text-neutral-400 hover:text-neutral-200"
+            >
+              ← Keep {state.artistName}
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="mt-1 flex items-center justify-between gap-3">
+          <span className="flex min-w-0 items-center gap-2 text-lg font-semibold">
+            {hasArtist ? (
+              <span className="truncate">{state.artistName}</span>
+            ) : (
+              <span className="text-neutral-500">Not chosen yet</span>
+            )}
+            {loading && (
+              <span className="flex shrink-0 items-center gap-1.5 text-sm font-normal text-neutral-400">
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-edge border-t-accent" />
+                loading songs…
+              </span>
+            )}
+          </span>
+          {isHost && hasArtist && !loading && (
+            <button
+              onClick={() => setEditing(true)}
+              className="shrink-0 cursor-pointer text-sm font-semibold text-accent hover:underline"
+            >
+              Change artist
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Compact player list: each player is a content-sized chip (name + tags),
+ *  wrapping to fill the row. No scores — those only matter once playing. */
+function PlayerChips({
+  players,
+  meId,
+}: {
+  players: Player[];
+  meId: string | null;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {players.map((p) => (
+        <span
+          key={p.id}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-edge bg-panel px-3 py-1.5"
+        >
+          <span className="font-semibold">{p.name}</span>
+          {p.isHost && <Tag>host</Tag>}
+          {p.id === meId && <Tag>you</Tag>}
+          {!p.connected && <Tag>offline</Tag>}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function Tag({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="rounded bg-edge px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-300">
+      {children}
+    </span>
+  );
+}
+
+function Settings({
+  config,
+  isHost,
+  onUpdateConfig,
+}: {
+  config: RoomConfig;
+  isHost: boolean;
+  onUpdateConfig: (config: Partial<RoomConfig>) => void;
+}) {
+  const durationSecs = Math.round(config.roundDurationMs / 1000);
+
+  // Non-hosts see the settings read-only.
+  if (!isHost) {
+    return (
+      <div className="mb-6 rounded-xl border border-edge bg-panel px-4 py-3 text-sm text-neutral-400">
+        <div className="mb-1 font-semibold uppercase tracking-wide">Settings</div>
+        <div>
+          {config.totalRounds} rounds · {durationSecs}s each
+          {config.includeNonPrimaryArtist && " · features included"}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-6 flex flex-col gap-5 rounded-xl border border-edge bg-panel px-4 py-4">
+      <div className="text-sm font-semibold uppercase tracking-wide text-neutral-400">
+        Settings
+      </div>
+
+      <SettingSlider
+        label="Number of rounds"
+        value={config.totalRounds}
+        min={MIN_TOTAL_ROUNDS}
+        max={MAX_TOTAL_ROUNDS}
+        onChange={(rounds) => onUpdateConfig({ totalRounds: rounds })}
+      />
+
+      <SettingSlider
+        label="Seconds per round"
+        value={durationSecs}
+        min={MIN_ROUND_DURATION_MS / 1000}
+        max={MAX_ROUND_DURATION_MS / 1000}
+        onChange={(secs) => onUpdateConfig({ roundDurationMs: secs * 1000 })}
+        format={(secs) => `${secs}s`}
+      />
+
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm">Include features</span>
+        <Toggle
+          label="Include features"
+          checked={config.includeNonPrimaryArtist}
+          onChange={(on) => onUpdateConfig({ includeNonPrimaryArtist: on })}
+        />
       </div>
     </div>
   );

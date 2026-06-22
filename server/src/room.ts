@@ -12,6 +12,10 @@
 import { WebSocket } from "ws";
 import {
   GAME_DEFAULTS,
+  MAX_ROUND_DURATION_MS,
+  MAX_TOTAL_ROUNDS,
+  MIN_ROUND_DURATION_MS,
+  MIN_TOTAL_ROUNDS,
   type GamePhase,
   type Player,
   type RoomConfig,
@@ -20,6 +24,10 @@ import {
   type RoundResult,
   type Song,
 } from "@ball-knowledge/shared";
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n));
+}
 import { fetchArtistSongs } from "./itunes.js";
 import { isCorrectGuess } from "./matching.js";
 import { send } from "./net.js";
@@ -31,6 +39,12 @@ interface PlayerEntry {
   isHost: boolean;
   connected: boolean;
   conn: WebSocket;
+  /**
+   * Round index this player joined during, if they joined mid-round. Such a
+   * player sits out that round (can't score it, doesn't block its end) and
+   * starts participating from the next one. -1 once they're a full participant.
+   */
+  joinRound: number;
 }
 
 function shuffle<T>(items: readonly T[]): T[] {
@@ -51,11 +65,17 @@ export class Room {
   private readonly players = new Map<string, PlayerEntry>();
 
   // Server-only answer data — never serialized into RoomState during play.
+  private selectedArtistId: number | null = null;
+  /** Every playable song fetched for the artist, before primary-artist filtering
+   *  and slicing. Kept so config changes can re-derive the playlist in the lobby. */
+  private allSongs: Song[] = [];
   private playlist: Song[] = [];
   private totalRounds = 0;
   private currentRoundIndex = -1;
   private roundStartsAt = 0;
   private firstWinnerId: string | null = null;
+  /** Players who hit "I don't know" this round; reset each round. */
+  private gaveUp = new Set<string>();
   private lastResult: RoundResult | null = null;
 
   private countdownTimer?: ReturnType<typeof setTimeout>;
@@ -82,6 +102,8 @@ export class Room {
       return id;
     }
     const isHost = this.players.size === 0;
+    // A player joining while a round is live must wait for the next round.
+    const joinRound = this.isActiveRound() ? this.currentRoundIndex : -1;
     this.players.set(id, {
       id,
       name,
@@ -89,6 +111,7 @@ export class Room {
       isHost,
       connected: true,
       conn,
+      joinRound,
     });
     return id;
   }
@@ -134,8 +157,8 @@ export class Room {
     return false;
   }
 
-  canJoin(): boolean {
-    return this.phase === "lobby";
+  isFinished(): boolean {
+    return this.phase === "finished";
   }
 
   /** A round is live (so a dropped player should be kept for reconnect). */
@@ -171,8 +194,9 @@ export class Room {
         this.broadcast();
         return this.error(playerId, "No playable songs found for that artist.");
       }
-      this.playlist = shuffle(songs).slice(0, this.config.totalRounds);
-      this.totalRounds = this.playlist.length;
+      this.selectedArtistId = artistId;
+      this.allSongs = songs;
+      this.derivePlaylist();
       this.phase = "lobby";
       this.broadcast();
     } catch {
@@ -181,6 +205,52 @@ export class Room {
       this.broadcast();
       this.error(playerId, "Failed to load songs from iTunes.");
     }
+  }
+
+  /** (Re)build the playlist from `allSongs` for the current config. Applies the
+   *  primary-artist filter and slices to the requested round count, then shuffles.
+   *  Safe to call repeatedly in the lobby as the host tweaks settings. */
+  private derivePlaylist(): void {
+    let pool = this.allSongs;
+    if (!this.config.includeNonPrimaryArtist && this.selectedArtistId != null) {
+      const primaryOnly = pool.filter(
+        (s) => s.artistId === this.selectedArtistId
+      );
+      // Fall back to the full pool if filtering would leave nothing to play.
+      if (primaryOnly.length > 0) pool = primaryOnly;
+    }
+    this.playlist = shuffle(pool).slice(0, this.config.totalRounds);
+    this.totalRounds = this.playlist.length;
+  }
+
+  /** Host-only, lobby-only: update settings, then re-derive the playlist. */
+  updateConfig(playerId: string, partial: Partial<RoomConfig>): void {
+    if (!this.requireHost(playerId)) return;
+    if (this.phase !== "lobby") {
+      return this.error(playerId, "Settings can only change in the lobby.");
+    }
+
+    if (typeof partial.totalRounds === "number") {
+      this.config.totalRounds = clamp(
+        Math.round(partial.totalRounds),
+        MIN_TOTAL_ROUNDS,
+        MAX_TOTAL_ROUNDS
+      );
+    }
+    if (typeof partial.roundDurationMs === "number") {
+      this.config.roundDurationMs = clamp(
+        Math.round(partial.roundDurationMs),
+        MIN_ROUND_DURATION_MS,
+        MAX_ROUND_DURATION_MS
+      );
+    }
+    if (typeof partial.includeNonPrimaryArtist === "boolean") {
+      this.config.includeNonPrimaryArtist = partial.includeNonPrimaryArtist;
+    }
+
+    // Re-derive only once an artist is loaded; otherwise just store the prefs.
+    if (this.allSongs.length > 0) this.derivePlaylist();
+    this.broadcast();
   }
 
   startGame(playerId: string): void {
@@ -207,6 +277,29 @@ export class Room {
     }
   }
 
+  /** Host-only, finished-only: send everyone back to the lobby for a rematch.
+   *  Scores reset to 0 and the playlist is reshuffled; the selected artist and
+   *  config are kept so the host can tweak settings and start again. */
+  resetGame(playerId: string): void {
+    if (!this.requireHost(playerId)) return;
+    if (this.phase !== "finished") {
+      return this.error(playerId, "Can only reset the game once it's over.");
+    }
+    this.clearTimers();
+    this.currentRoundIndex = -1;
+    this.firstWinnerId = null;
+    this.gaveUp.clear();
+    this.lastResult = null;
+    for (const p of this.players.values()) {
+      p.score = 0;
+      p.joinRound = -1;
+    }
+    // Reshuffle so a rematch isn't the same song order.
+    if (this.allSongs.length > 0) this.derivePlaylist();
+    this.phase = "lobby";
+    this.broadcast();
+  }
+
   // --- gameplay -----------------------------------------------------------
 
   guess(playerId: string, roundIndex: number, text: string): void {
@@ -214,6 +307,7 @@ export class Room {
     if (roundIndex !== this.currentRoundIndex) return; // stale round
     const player = this.players.get(playerId);
     if (!player) return;
+    if (player.joinRound === this.currentRoundIndex) return; // joined mid-round
 
     const song = this.playlist[this.currentRoundIndex];
     const correct = isCorrectGuess(text, song.title);
@@ -235,12 +329,45 @@ export class Room {
     this.endRound();
   }
 
+  /** A player concedes the round. Once every connected player has conceded, the
+   *  round ends early with no winner. */
+  giveUp(playerId: string, roundIndex: number): void {
+    if (this.phase !== "playing") return;
+    if (roundIndex !== this.currentRoundIndex) return;
+    if (!this.players.has(playerId)) return;
+    if (this.gaveUp.has(playerId)) return;
+
+    this.gaveUp.add(playerId);
+    if (this.everyoneGaveUp()) {
+      this.endRound();
+    } else {
+      // Surface the updated tally so clients can show "2/4 gave up".
+      this.broadcast();
+    }
+  }
+
+  /** True if at least one player is connected and all connected players have
+   *  conceded the current round. */
+  private everyoneGaveUp(): boolean {
+    let connected = 0;
+    for (const p of this.players.values()) {
+      if (!p.connected) continue;
+      if (p.joinRound === this.currentRoundIndex) continue; // sitting out
+      connected++;
+      if (!this.gaveUp.has(p.id)) return false;
+    }
+    return connected > 0;
+  }
+
   // --- round lifecycle ----------------------------------------------------
 
   private beginRound(index: number): void {
     this.clearTimers();
     this.currentRoundIndex = index;
     this.firstWinnerId = null;
+    this.gaveUp.clear();
+    // Anyone who was sitting out a prior round is now a full participant.
+    for (const p of this.players.values()) p.joinRound = -1;
     this.lastResult = null;
     this.phase = "countdown";
     this.roundStartsAt = Date.now() + this.config.countdownMs;
@@ -316,7 +443,9 @@ export class Room {
       players: [...this.players.values()].map(toPublicPlayer),
       roundNumber: this.currentRoundIndex >= 0 ? this.currentRoundIndex + 1 : 0,
       totalRounds: this.totalRounds,
+      config: { ...this.config },
       currentRound,
+      gaveUpCount: this.phase === "playing" ? this.gaveUp.size : 0,
       lastResult:
         this.phase === "reveal" || this.phase === "finished"
           ? this.lastResult
