@@ -16,3 +16,26 @@ body {
 .font-bitcount {
   font-family: "Bitcount Grid Double", system-ui, sans-serif;
 }
+
+@keyframes copied-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.8) translateY(4px);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1) translateY(-2px);
+  }
+}
+
+.animate-copied-pop {
+  animation: copied-pop 1.5s ease-out forwards;
+}

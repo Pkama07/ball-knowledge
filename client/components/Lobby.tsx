@@ -41,11 +41,7 @@ export function Lobby({
             {state.code}
           </div>
         </div>
-        <div className="text-right text-sm text-neutral-400">
-          Share this code
-          <br />
-          so friends can join
-        </div>
+        <CopyLinkButton code={state.code} />
       </div>
 
       <ArtistSection
@@ -80,6 +76,63 @@ export function Lobby({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Box-outlined link icon that copies the joinable room URL (<origin>/<code>)
+ *  to the clipboard, briefly flashing a "Copied!" popup on success. */
+function CopyLinkButton({ code }: { code: string }) {
+  // Increments on each copy so the popup re-mounts and replays its animation.
+  const [copyCount, setCopyCount] = useState(0);
+
+  const copy = async () => {
+    const url = `${window.location.origin}/${code}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // Fallback for browsers/contexts without the async clipboard API.
+      const el = document.createElement("textarea");
+      el.value = url;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+    }
+    setCopyCount((n) => n + 1);
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={copy}
+        aria-label="Copy invite link"
+        title="Copy invite link"
+        className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-lg border border-edge bg-panel text-neutral-300 hover:border-accent hover:text-accent"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
+      </button>
+      {copyCount > 0 && (
+        <span
+          key={copyCount}
+          className="animate-copied-pop pointer-events-none absolute right-0 top-full mt-2 whitespace-nowrap rounded-md bg-accent px-2 py-1 text-xs font-semibold text-white shadow-lg"
+        >
+          Copied!
+        </span>
+      )}
     </div>
   );
 }

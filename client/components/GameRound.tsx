@@ -76,7 +76,15 @@ export function GameRound({
 
   // --- guess input ---
   const [text, setText] = useState("");
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const alreadyWon = guessFeedback?.awarded === true;
+
+  // The guess input lives in the DOM during the countdown too (disabled), so a
+  // bare autoFocus won't fire when play actually begins — focus it explicitly
+  // once the round goes live.
+  useEffect(() => {
+    if (phase === "playing") inputRef.current?.focus();
+  }, [phase]);
 
   // Whether *this* player has hit "I don't know" for the current round. Reset
   // whenever the round changes so the button is live again next round.
@@ -123,40 +131,42 @@ export function GameRound({
         )
       : 0;
 
-  // ---------------- COUNTDOWN ----------------
-  if (phase === "countdown" && currentRound && countdownSecs > 0) {
-    return (
-      <div>
-        {header}
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="text-neutral-400">Get ready…</div>
-          <div className="mt-2 text-8xl font-black tabular-nums">
-            {countdownSecs}
-          </div>
-          {needsUnlock && (
-            <UnlockButton audioRef={audioRef} onUnlocked={() => setNeedsUnlock(false)} />
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ---------------- PLAYING ----------------
-  // Also covers the brief tail of the countdown once it reaches 0 locally (audio
-  // is starting), so we jump straight to the guess UI with no placeholder flash.
+  // ------------- COUNTDOWN + PLAYING (one shared layout) -------------
+  // Both phases render the exact same skeleton, so nothing reflows when the
+  // countdown ends: only the status block (countdown digit vs. timer) and the
+  // disabled state of the controls change. The status block is a fixed height so
+  // the big countdown number and the small timer text take the same vertical
+  // space — keeping the header and everything below pinned in place. (This also
+  // covers the brief local tail of the countdown once it hits 0 and audio is
+  // starting, so we slide straight into the live guess UI with no flicker.)
   if ((phase === "playing" || phase === "countdown") && currentRound) {
+    const isCountdown = phase === "countdown" && countdownSecs > 0;
     const endLocal = currentRound.startsAt + currentRound.durationMs - clockOffset;
     const remaining = Math.max(0, endLocal - now);
-    const pct = Math.min(100, (remaining / currentRound.durationMs) * 100);
+    const pct = isCountdown
+      ? 100
+      : Math.min(100, (remaining / currentRound.durationMs) * 100);
+    const inputLocked = locked || isCountdown;
 
     return (
       <div>
         {header}
-        <div className="mb-6 text-center">
-          <div className="text-xl font-semibold">Name that song!</div>
-          <div className="mt-1 text-sm text-neutral-400">
-            {(remaining / 1000).toFixed(0)}s left
-          </div>
+        <div className="mb-6 flex h-24 flex-col items-center justify-center text-center">
+          {isCountdown ? (
+            <>
+              <div className="text-sm text-neutral-400">Get ready…</div>
+              <div className="text-7xl font-black leading-none tabular-nums">
+                {countdownSecs}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-xl font-semibold">Name that song!</div>
+              <div className="mt-1 text-sm text-neutral-400">
+                {(remaining / 1000).toFixed(0)}s left
+              </div>
+            </>
+          )}
         </div>
 
         <div className="mb-6 h-2 w-full overflow-hidden rounded-full bg-edge">
@@ -174,15 +184,17 @@ export function GameRound({
 
         <form onSubmit={submitGuess} className="mb-3 flex gap-2">
           <input
+            ref={inputRef}
             type="text"
-            autoFocus
-            disabled={locked}
+            disabled={inputLocked}
             placeholder={
-              alreadyWon
-                ? "You got it! 🎉"
-                : gaveUp
-                  ? "You gave up — waiting on others…"
-                  : "Type your guess…"
+              isCountdown
+                ? "Get ready…"
+                : alreadyWon
+                  ? "You got it! 🎉"
+                  : gaveUp
+                    ? "You gave up — waiting on others…"
+                    : "Type your guess…"
             }
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -190,7 +202,7 @@ export function GameRound({
           />
           <button
             type="submit"
-            disabled={locked}
+            disabled={inputLocked}
             className="cursor-pointer rounded-xl bg-accent px-5 py-3 font-semibold text-white disabled:cursor-default disabled:opacity-40"
           >
             Guess
@@ -201,7 +213,7 @@ export function GameRound({
           <button
             type="button"
             onClick={handleGiveUp}
-            disabled={locked}
+            disabled={inputLocked}
             className="cursor-pointer rounded-xl border border-edge px-4 py-2 text-sm font-semibold text-neutral-300 hover:bg-neutral-800 disabled:cursor-default disabled:opacity-40"
           >
             🤷 I don&apos;t know
@@ -213,11 +225,13 @@ export function GameRound({
           )}
         </div>
 
-        <GuessFeedbackLine feedback={guessFeedback} />
+        <GuessFeedbackLine feedback={isCountdown ? null : guessFeedback} />
 
         <div className="mt-6">
           <Scoreboard players={state.players} meId={meId} />
         </div>
+
+        {isHost && <HostResetButton onReset={onReset} />}
       </div>
     );
   }
@@ -276,6 +290,8 @@ export function GameRound({
           meId={meId}
           winnerId={lastResult.winnerId}
         />
+
+        {isHost && <HostResetButton onReset={onReset} />}
 
         <div className="mt-7">
           {isHost ? (
@@ -340,6 +356,28 @@ export function GameRound({
   }
 
   return null;
+}
+
+/** Low-key host-only control to abandon the current game and return everyone to
+ *  the lobby. Sits under the leaderboard so it's reachable at any point mid-game
+ *  without competing with the primary action. Confirms first — a stray tap here
+ *  would wipe out an in-progress game for the whole room. */
+function HostResetButton({ onReset }: { onReset: () => void }) {
+  return (
+    <div className="mt-5 flex justify-center">
+      <button
+        type="button"
+        onClick={() => {
+          if (window.confirm("Reset the game and send everyone back to the lobby?")) {
+            onReset();
+          }
+        }}
+        className="cursor-pointer rounded-lg border border-edge px-4 py-2 text-sm font-semibold text-neutral-400 hover:border-red-500/50 hover:text-red-300"
+      >
+        Reset game
+      </button>
+    </div>
+  );
 }
 
 function GuessFeedbackLine({ feedback }: { feedback: GuessFeedback | null }) {

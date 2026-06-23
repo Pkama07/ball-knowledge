@@ -277,13 +277,14 @@ export class Room {
     }
   }
 
-  /** Host-only, finished-only: send everyone back to the lobby for a rematch.
-   *  Scores reset to 0 and the playlist is reshuffled; the selected artist and
-   *  config are kept so the host can tweak settings and start again. */
+  /** Host-only: send everyone back to the lobby, either for a rematch once the
+   *  game is over or to abandon a game already in progress. Scores reset to 0 and
+   *  the playlist is reshuffled; the selected artist and config are kept so the
+   *  host can tweak settings and start again. No-op from the lobby itself. */
   resetGame(playerId: string): void {
     if (!this.requireHost(playerId)) return;
-    if (this.phase !== "finished") {
-      return this.error(playerId, "Can only reset the game once it's over.");
+    if (this.phase === "lobby" || this.phase === "loading") {
+      return this.error(playerId, "There's no game in progress to reset.");
     }
     this.clearTimers();
     this.currentRoundIndex = -1;
