@@ -12,3 +12,7 @@ body {
   background: var(--color-ink);
   color: #e8eaed;
 }
+
+.font-bitcount {
+  font-family: "Bitcount Grid Double", system-ui, sans-serif;
+}
