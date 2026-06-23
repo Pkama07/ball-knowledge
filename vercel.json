@@ -2,6 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "npm install",
-  "buildCommand": "npm run build --workspace @ball-knowledge/client",
+  "buildCommand": "npm run build --workspace @ball-knowledge/shared && npm run build --workspace @ball-knowledge/client",
   "outputDirectory": "client/.next"
 }
