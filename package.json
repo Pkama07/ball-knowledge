@@ -12,5 +12,8 @@
     "dev:server": "npm run dev --workspace @ball-knowledge/server",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "dependencies": {
+    "vercel": "^54.15.1"
   }
 }
