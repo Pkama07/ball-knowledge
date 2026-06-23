@@ -11,6 +11,7 @@
   "dependencies": {
     "@ball-knowledge/shared": "*",
     "@supabase/supabase-js": "^2.108.2",
+    "@vercel/analytics": "^2.0.1",
     "next": "15.3.1",
     "react": "19.1.0",
     "react-dom": "19.1.0"
