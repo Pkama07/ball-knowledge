@@ -1,4 +1,4 @@
-# Ball Knowledge
+# ShotFor.Me
 
 A multiplayer web game. Players join a room, the host picks a musical artist, and
 ~30-second song previews from that artist's discography play one at a time. Players

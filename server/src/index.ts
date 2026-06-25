@@ -1,4 +1,4 @@
-// Ball Knowledge game server.
+// ShotFor.Me game server.
 //
 // An HTTP server with a /health check, plus a WebSocket endpoint where all the
 // room/game traffic flows. Each socket is authenticated at connect time with a

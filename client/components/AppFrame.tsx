@@ -15,7 +15,7 @@ export function AppFrame({
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-5 py-10">
       <h1 className="font-bitcount mb-4 text-center text-2xl font-light">
-        Ball Knowledge
+        ShotFor.Me
       </h1>
 
       {error && (

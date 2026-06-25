@@ -54,15 +54,24 @@ function HomeScreen({ game }: { game: GameClient }) {
 	// success the room appears and this whole screen unmounts; on failure
 	// game.error is set, so reset there.
 	const [creating, setCreating] = useState(false);
+	// When true, the "Join room" button is swapped for the ROOM CODE input.
+	const [joining, setJoining] = useState(false);
 
 	// Prefill the name from the last-used value stored in the cookie.
 	useEffect(() => setName(getStoredName()), []);
+	// Clear the "creating" loading state if the attempt fails — either an
+	// explicit server error, or the socket erroring/closing before a room
+	// ever arrives (otherwise the button hangs on "Creating room…" forever).
 	useEffect(() => {
-		if (game.error) setCreating(false);
-	}, [game.error]);
+		if (game.error || game.status === "error" || game.status === "closed") {
+			setCreating(false);
+		}
+	}, [game.error, game.status]);
 
 	// Block connecting until we have an anonymous session (and thus a token).
 	const busy = game.status === "connecting" || !isReady;
+	// Gate the create/join actions until the player has typed a name.
+	const hasName = name.trim().length > 0;
 
 	const createLabel = !isReady
 		? authError
@@ -76,6 +85,11 @@ function HomeScreen({ game }: { game: GameClient }) {
 		const finalName = name.trim() || "Player";
 		storeName(finalName);
 		return finalName;
+	};
+
+	const canJoin = !busy && code.trim().length >= 6;
+	const submitJoin = () => {
+		if (canJoin) game.join(code.trim(), resolvedName());
 	};
 
 	return (
@@ -97,45 +111,80 @@ function HomeScreen({ game }: { game: GameClient }) {
 				placeholder="e.g. Alex"
 				value={name}
 				onChange={(e) => setName(e.target.value)}
-				className="mb-3 w-full rounded-xl border border-edge bg-panel px-4 py-3 text-base text-neutral-100 outline-none focus:border-accent"
+				disabled={creating}
+				className="mb-3 w-full rounded-xl border border-edge bg-panel px-4 py-3 text-base text-neutral-100 outline-none focus:border-accent disabled:cursor-default disabled:opacity-50"
 			/>
 
-			<button
-				onClick={() => {
-					setCreating(true);
-					game.create(resolvedName());
-				}}
-				disabled={busy || creating}
-				className="mb-4 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-accent px-5 py-4 text-lg font-bold text-white disabled:cursor-default disabled:opacity-50"
-			>
-				{creating && <MiniSpinner />}
-				{createLabel}
-			</button>
+			<div className="flex flex-col gap-2 sm:flex-row">
+				{/* Both slots are identical flex-1 wrappers so the row layout never
+				    shifts when the right side swaps between button and input. */}
+				<div className="min-w-0 flex-1">
+					<button
+						onClick={() => {
+							setCreating(true);
+							game.create(resolvedName());
+						}}
+						disabled={busy || creating || !hasName}
+						className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-transparent bg-accent px-5 py-4 text-lg font-bold text-white disabled:cursor-default disabled:opacity-50"
+					>
+						{creating && <MiniSpinner />}
+						{createLabel}
+					</button>
+				</div>
 
-			<div className="mb-4 flex items-center gap-3 text-sm text-neutral-500">
-				<div className="h-px flex-1 bg-edge" />
-				or join one
-				<div className="h-px flex-1 bg-edge" />
-			</div>
-
-			<div className="flex gap-2">
-				<input
-					type="text"
-					placeholder="ROOM CODE"
-					value={code}
-					onChange={(e) =>
-						setCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))
-					}
-					maxLength={6}
-					className="w-36 rounded-xl border border-edge bg-panel px-4 py-3 text-center font-mono text-base uppercase tracking-[0.2em] text-neutral-100 outline-none focus:border-accent"
-				/>
-				<button
-					onClick={() => game.join(code.trim(), resolvedName())}
-					disabled={busy || code.trim().length < 6}
-					className="flex-1 cursor-pointer rounded-xl bg-neutral-800 px-5 py-3 font-semibold text-neutral-100 hover:bg-neutral-700 disabled:cursor-default disabled:opacity-50"
-				>
-					Join room
-				</button>
+				<div className="relative min-w-0 flex-1">
+					{joining ? (
+						<>
+							<input
+								type="text"
+								autoFocus
+								placeholder="ROOM CODE"
+								value={code}
+								onChange={(e) =>
+									setCode(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))
+								}
+								onKeyDown={(e) => {
+									if (e.key === "Enter") submitJoin();
+								}}
+								onBlur={() => setJoining(false)}
+								maxLength={6}
+								className="w-full rounded-xl border border-edge bg-panel py-4 pl-12 pr-12 text-center font-mono text-lg uppercase tracking-[0.2em] text-neutral-100 outline-none focus:border-accent"
+							/>
+							<button
+								type="button"
+								aria-label="Join room"
+								// Keep the input focused so its onBlur doesn't swap this
+								// button away before the click lands.
+								onMouseDown={(e) => e.preventDefault()}
+								onClick={submitJoin}
+								disabled={!canJoin}
+								className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-accent text-white transition-opacity disabled:cursor-default disabled:opacity-40"
+							>
+								<svg
+									width="18"
+									height="18"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2.5"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+								>
+									<line x1="5" y1="12" x2="19" y2="12" />
+									<polyline points="12 5 19 12 12 19" />
+								</svg>
+							</button>
+						</>
+					) : (
+						<button
+							onClick={() => setJoining(true)}
+							disabled={busy || creating || !hasName}
+							className="w-full cursor-pointer rounded-xl border border-transparent bg-neutral-800 px-5 py-4 text-lg font-bold text-neutral-100 hover:bg-neutral-700 disabled:cursor-default disabled:opacity-50"
+						>
+							Join room
+						</button>
+					)}
+				</div>
 			</div>
 		</div>
 	);

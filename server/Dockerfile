@@ -1,4 +1,4 @@
-# Ball Knowledge game server — production image.
+# ShotFor.Me game server — production image.
 #
 # Multi-stage build. The repo is an npm-workspaces monorepo; the server depends
 # on the `@ball-knowledge/shared` workspace, so we build `shared` and `server`

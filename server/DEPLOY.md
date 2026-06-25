@@ -1,4 +1,4 @@
-# Deploying Ball Knowledge
+# Deploying ShotFor.Me
 
 The app has two deployable parts:
 
