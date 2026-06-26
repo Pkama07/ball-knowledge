@@ -316,18 +316,35 @@ export function GameRound({
     const ranked = [...state.players].sort((a, b) => b.score - a.score);
     const topScore = ranked[0]?.score ?? 0;
     const winners = ranked.filter((p) => p.score === topScore && topScore > 0);
+    const iWon = winners.some((w) => w.id === meId);
+
+    // Headline reflects whether *you* came out on top. With no winner (nobody
+    // scored) fall back to a neutral prompt rather than declaring a loss.
+    const headline =
+      winners.length === 0
+        ? { emoji: "🤷", text: "No winner" }
+        : iWon
+          ? { emoji: "🎉", text: "You won!" }
+          : { emoji: "😞", text: "You lost" };
+
+    // "Looks like Alex is the biggest Daft Punk fan" — names the winner, or the
+    // tied players, as the resident superfan of the round's artist.
+    const fanLine =
+      winners.length === 0
+        ? "Nobody scored a point — rematch?"
+        : `Looks like ${
+            winners.length === 1
+              ? winners[0].name
+              : winners.map((w) => w.name).join(" & ")
+          } ${winners.length === 1 ? "is" : "are"} the biggest ${
+            state.artistName
+          } fan${winners.length === 1 ? "" : "s"}.`;
 
     return (
       <div className="text-center">
-        <div className="text-6xl">🏆</div>
-        <h2 className="mt-3 text-3xl font-black">Game over!</h2>
-        <p className="mb-6 mt-1 text-neutral-400">
-          {winners.length === 0
-            ? "No points scored — rematch?"
-            : winners.length === 1
-              ? `${winners[0].name} wins!`
-              : `Tie between ${winners.map((w) => w.name).join(" & ")}!`}
-        </p>
+        <div className="text-6xl">{headline.emoji}</div>
+        <h2 className="mt-3 text-3xl font-black">{headline.text}</h2>
+        <p className="mb-6 mt-1 text-neutral-400">{fanLine}</p>
 
         <div className="text-left">
           <Scoreboard

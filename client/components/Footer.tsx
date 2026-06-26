@@ -30,10 +30,6 @@ export function Footer() {
 				</a>
 				.
 			</span>
-			<span className="pointer-events-auto sm:text-right">
-				For questions, concerns, or feedback, email pradyunkamaraju [at]
-				gmail.com.
-			</span>
 		</footer>
 	);
 }
