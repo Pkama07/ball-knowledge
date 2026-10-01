@@ -9,7 +9,7 @@ number of rounds, the highest score wins.
 
 Three parts, as separate workspaces in this repo:
 
-- **`client/`** — the browser UI. Next.js 15 (App Router) + React 19 + Tailwind CSS v4.
+- **`client/`** — the browser UI. Next.js 16 (App Router) + React 19 + Tailwind CSS v4.
 - **`server/`** — the authoritative game server. Node.js + TypeScript. Owns room
   state, runs the round timer, scores guesses, and broadcasts updates over WebSockets.
 - **`shared/`** — TypeScript types shared by client and server: the domain model and
@@ -33,9 +33,9 @@ so clients can't cheat the clock.
 | Area     | Choice                                                              |
 | -------- | ------------------------------------------------------------------ |
 | Language | TypeScript 5.9, `strict` everywhere, ESM (`"type": "module"`)      |
-| Client   | Next.js 15.3, React 19, Tailwind v4 (via `@tailwindcss/postcss`)   |
+| Client   | Next.js 16.3 (webpack, not Turbopack), React 19.3, Tailwind v4     |
 | Server   | Node.js HTTP server today; WebSockets to be added                  |
-| Dev      | `tsx watch` (server), `next dev` (client)                          |
+| Dev      | `tsx watch` (server), `next dev --webpack` (client)                |
 | Data     | iTunes Search API (`itunes.apple.com`), accessed from the client   |
 
 ## Layout
@@ -87,6 +87,9 @@ scoring.
 
 - **ESM only.** Relative imports between `.ts` files use `.js` extensions
   (e.g. `import ... from "./domain.js"`) — required for Node ESM resolution.
+  The client resolves those `.js` specifiers to `shared/`'s `.ts` source via a
+  webpack `extensionAlias` in `client/next.config.mjs`. Turbopack (Next 16's
+  default) doesn't do this, which is why the client scripts pass `--webpack`.
 - **Share types, don't duplicate.** Anything client and server both need lives in
   `shared/`. Note `client/lib/itunes.ts` defines its own `Artist`/`Track` (raw iTunes
   shapes); `shared` `Song` is the game's normalized form — keep them distinct.
@@ -106,9 +109,8 @@ runner yet — see "Open decisions"). Install deps per workspace.
 
 ```bash
 # client/  → http://localhost:3000
-npm run dev          # next dev
-npm run build
-npm run lint
+npm run dev          # next dev --webpack
+npm run build        # next build --webpack
 
 # server/  → http://localhost:4000  (PORT env overrides)
 npm run dev          # tsx watch src/index.ts
