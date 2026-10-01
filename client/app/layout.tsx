@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { AuthProvider } from "@/components/AuthProvider";
-import { Footer } from "@/components/Footer";
 
 // Central site metadata — shared across the document head, Open Graph (chat
 // apps, Slack, Discord, etc.), and Twitter cards.
@@ -60,7 +59,6 @@ export default function RootLayout({
 			</head>
 			<body>
 				<AuthProvider>{children}</AuthProvider>
-				<Footer />
 				<Analytics />
 			</body>
 		</html>
