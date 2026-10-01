@@ -26,7 +26,7 @@ interface ITunesResponse<T> {
 /** Look up an artist's songs that have playable preview clips. */
 export async function fetchArtistSongs(
   artistId: number,
-  limit = 50
+  limit = 200 // iTunes' max — a deep pool keeps games from repeating the same hits
 ): Promise<Song[]> {
   const url =
     `https://itunes.apple.com/lookup` +
@@ -38,8 +38,10 @@ export async function fetchArtistSongs(
   }
   const data = (await res.json()) as ITunesResponse<RawTrack>;
 
-  // First result is the artist record; the rest are tracks. Keep only songs
-  // with a preview URL, and normalize into our Song shape.
+  // First result is the artist record; the rest are tracks (roughly in
+  // popularity order). Keep only songs with a preview URL, drop repeat versions
+  // of the same song, and normalize into our Song shape.
+  const seen = new Set<string>();
   return (data.results ?? [])
     .filter(
       (r) =>
@@ -48,6 +50,12 @@ export async function fetchArtistSongs(
         Boolean(r.previewUrl) &&
         Boolean(r.trackName)
     )
+    .filter((r) => {
+      const key = dedupeKey(r.trackName!);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .map((r) => ({
       trackId: r.trackId!,
       artistId: r.artistId,
@@ -57,4 +65,15 @@ export async function fetchArtistSongs(
       artworkUrl: r.artworkUrl100,
       previewUrl: r.previewUrl!,
     }));
+}
+
+/** Collapse versions of the same song ("Anti-Hero", "Anti-Hero (Live)",
+ *  "Clean - Remastered", "Love Story (Taylor's Version)") to one key. */
+function dedupeKey(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/\s*[([].*?[)\]]/g, "")
+    .replace(/\s+-\s+.*$/, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }

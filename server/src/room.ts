@@ -47,13 +47,18 @@ interface PlayerEntry {
   joinRound: number;
 }
 
-function shuffle<T>(items: readonly T[]): T[] {
-  const a = [...items];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
+/** Random order biased toward the front of `items` (iTunes returns tracks
+ *  roughly by popularity). Each game draws a different mix, but well-known
+ *  songs still come up more often than deep cuts. Uses Efraimidis–Spirakis
+ *  weighted sampling: sort by u^(1/w) with weight decaying by rank. */
+function popularityShuffle<T>(items: readonly T[]): T[] {
+  return items
+    .map((item, rank) => ({
+      item,
+      key: Math.pow(Math.random(), Math.sqrt(rank + 1)),
+    }))
+    .sort((a, b) => b.key - a.key)
+    .map((e) => e.item);
 }
 
 export class Room {
@@ -219,7 +224,7 @@ export class Room {
       // Fall back to the full pool if filtering would leave nothing to play.
       if (primaryOnly.length > 0) pool = primaryOnly;
     }
-    this.playlist = shuffle(pool).slice(0, this.config.totalRounds);
+    this.playlist = popularityShuffle(pool).slice(0, this.config.totalRounds);
     this.totalRounds = this.playlist.length;
   }
 
